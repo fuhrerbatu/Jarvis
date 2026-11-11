@@ -37,8 +37,10 @@ object JarvisController {
             return
         }
         val prefs = Prefs(app)
-        if (prefs.apiKey.isBlank()) {
-            service.overlay.showCard("Önce Jarvis uygulamasından Claude API anahtarını girmen gerekiyor.")
+        val provider = prefs.provider
+        val key = prefs.apiKey(provider)
+        if (key.isBlank()) {
+            service.overlay.showCard("Önce Jarvis uygulamasından API anahtarını girmen gerekiyor.")
             return
         }
         if (job?.isActive == true) return
@@ -48,7 +50,13 @@ object JarvisController {
             overlay.hideCard()
             overlay.showStatus("“$command”")
             try {
-                val answer = JarvisAgent(service, prefs.apiKey, prefs.model).run(command) { overlay.showStatus(it) }
+                val tools = PhoneTools(service)
+                val brain: Brain = if (provider == Prefs.CLAUDE) {
+                    ClaudeBrain(tools, key, prefs.model(provider))
+                } else {
+                    GeminiBrain(tools, key, prefs.model(provider))
+                }
+                val answer = brain.run(command) { overlay.showStatus(it) }
                 overlay.hideStatus()
                 overlay.showCard(answer)
                 if (answer.length < 140 && "http" !in answer) {

@@ -8,13 +8,19 @@ class Prefs(context: Context) {
     private val sp: SharedPreferences =
         context.applicationContext.getSharedPreferences("jarvis", Context.MODE_PRIVATE)
 
-    var apiKey: String
-        get() = sp.getString("api_key", "") ?: ""
-        set(v) = sp.edit().putString("api_key", v.trim()).apply()
+    /** "gemini" (ücretsiz katman) ya da "claude" (ücretli). */
+    var provider: String
+        get() = sp.getString("provider", GEMINI) ?: GEMINI
+        set(v) = sp.edit().putString("provider", v).apply()
 
-    var model: String
-        get() = sp.getString("model", DEFAULT_MODEL)?.ifBlank { DEFAULT_MODEL } ?: DEFAULT_MODEL
-        set(v) = sp.edit().putString("model", v.trim()).apply()
+    fun apiKey(provider: String): String = sp.getString("api_key_$provider", "") ?: ""
+
+    fun setApiKey(provider: String, key: String) = sp.edit().putString("api_key_$provider", key.trim()).apply()
+
+    fun model(provider: String): String =
+        sp.getString("model_$provider", null)?.ifBlank { null } ?: defaultModel(provider)
+
+    fun setModel(provider: String, model: String) = sp.edit().putString("model_$provider", model.trim()).apply()
 
     var wakeWordEnabled: Boolean
         get() = sp.getBoolean("wake", true)
@@ -29,7 +35,10 @@ class Prefs(context: Context) {
         set(v) = sp.edit().putBoolean("bubble", v).apply()
 
     companion object {
-        const val DEFAULT_MODEL = "claude-opus-5-5"
+        const val GEMINI = "gemini"
+        const val CLAUDE = "claude"
+
+        fun defaultModel(provider: String) = if (provider == CLAUDE) "claude-opus-5-5" else "gemini-3.8-flash"
         const val SPEECH_LOCALE = "tr-TR"
     }
 }

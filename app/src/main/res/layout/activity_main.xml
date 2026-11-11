@@ -31,13 +31,39 @@
             style="@style/TextAppearance.Material3.TitleSmall"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="1. Claude API anahtarı" />
+            android:text="1. Yapay zekâ ve API anahtarı" />
+
+        <RadioGroup
+            android:id="@+id/providerGroup"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <RadioButton
+                android:id="@+id/providerGemini"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Gemini (ücretsiz)" />
+
+            <RadioButton
+                android:id="@+id/providerClaude"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="12dp"
+                android:text="Claude (ücretli)" />
+        </RadioGroup>
+
+        <TextView
+            android:id="@+id/providerNote"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textSize="13sp" />
 
         <com.google.android.material.textfield.TextInputLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="6dp"
-            android:hint="sk-ant-…"
+            android:hint="API anahtarı"
             app:endIconMode="password_toggle"
             xmlns:app="http://schemas.android.com/apk/res-auto">
 
@@ -63,11 +89,24 @@
                 android:maxLines="1" />
         </com.google.android.material.textfield.TextInputLayout>
 
-        <Button
-            android:id="@+id/saveKey"
+        <LinearLayout
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Kaydet" />
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/saveKey"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Kaydet" />
+
+            <Button
+                android:id="@+id/getKey"
+                style="@style/Widget.Material3.Button.TextButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Anahtar al" />
+        </LinearLayout>
 
         <TextView
             android:id="@+id/stepMic"

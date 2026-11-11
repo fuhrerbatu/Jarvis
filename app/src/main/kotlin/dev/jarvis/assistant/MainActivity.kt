@@ -28,14 +28,25 @@ class MainActivity : AppCompatActivity() {
         ui = ActivityMainBinding.inflate(layoutInflater)
         setContentView(ui.root)
 
-        ui.apiKey.setText(prefs.apiKey)
-        ui.model.setText(prefs.model)
+        ui.providerGroup.check(if (prefs.provider == Prefs.CLAUDE) R.id.providerClaude else R.id.providerGemini)
+        showProvider()
+        ui.providerGroup.setOnCheckedChangeListener { _, id ->
+            prefs.provider = if (id == R.id.providerClaude) Prefs.CLAUDE else Prefs.GEMINI
+            showProvider()
+            refresh()
+        }
         ui.saveKey.setOnClickListener {
-            prefs.apiKey = ui.apiKey.text?.toString().orEmpty()
-            prefs.model = ui.model.text?.toString().orEmpty()
-            ui.model.setText(prefs.model)
+            val provider = prefs.provider
+            prefs.setApiKey(provider, ui.apiKey.text?.toString().orEmpty())
+            prefs.setModel(provider, ui.model.text?.toString().orEmpty())
+            showProvider()
             Toast.makeText(this, "Kaydedildi", Toast.LENGTH_SHORT).show()
             refresh()
+        }
+        ui.getKey.setOnClickListener {
+            val url = if (prefs.provider == Prefs.CLAUDE) "https://console.anthropic.com/settings/keys"
+            else "https://aistudio.google.com/apikey"
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
         }
 
         ui.grantMic.setOnClickListener {
@@ -76,6 +87,18 @@ class MainActivity : AppCompatActivity() {
         refresh()
     }
 
+    /** Seçili sağlayıcının anahtarını, modelini ve açıklamasını alanlara yükler. */
+    private fun showProvider() {
+        val provider = prefs.provider
+        ui.apiKey.setText(prefs.apiKey(provider))
+        ui.model.setText(prefs.model(provider))
+        ui.providerNote.text = if (provider == Prefs.CLAUDE) {
+            "Ücretli: her komut Claude API kredinden düşer. Web araması yapabilir."
+        } else {
+            "Ücretsiz: Google hesabınla AI Studio'dan kart girmeden anahtar alınır. Günlük kullanım sınırı vardır."
+        }
+    }
+
     private fun micGranted() =
         checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
 
@@ -86,10 +109,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun refresh() {
-        val keyOk = prefs.apiKey.isNotBlank()
+        val keyOk = prefs.apiKey(prefs.provider).isNotBlank()
         val micOk = micGranted()
         val a11yOk = JarvisAccessibilityService.instance != null
-        ui.stepApiKey.text = mark(keyOk) + " 1. Claude API anahtarı"
+        ui.stepApiKey.text = mark(keyOk) + " 1. Yapay zekâ ve API anahtarı"
         ui.stepMic.text = mark(micOk) + " 2. Mikrofon ve bildirim izni"
         ui.stepAccessibility.text = mark(a11yOk) + " 3. Erişilebilirlik servisi"
         ui.status.text = if (keyOk && micOk && a11yOk) {
