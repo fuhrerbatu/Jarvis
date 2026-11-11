@@ -1,6 +1,8 @@
 package dev.jarvis.assistant
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runInterruptible
 import okhttp3.MediaType.Companion.toMediaType
@@ -91,32 +93,12 @@ class GeminiBrain(
             .toString()
         var attempt = 0
         while (true) {
-            val request = Request.Builder()
-                .url(ENDPOINT)
-                .header("x-goog-api-key", apiKey)
-                .post(body.toRequestBody(JSON))
-                .build()
             val started = System.currentTimeMillis()
-            val (code, payload) = try {
-                runInterruptible(Dispatchers.IO) {
-                    http.newCall(request).execute().use { it.code to it.body?.string().orEmpty() }
-                }
-            } catch (e: IOException) {
-                DebugLog.add("Gemini bağlantı hatası (${System.currentTimeMillis() - started} ms): $e")
-                throw IllegalStateException(
-                    if (e is java.io.InterruptedIOException) "Gemini $CALL_TIMEOUT_S saniye içinde yanıt vermedi. Tekrar dene."
-                    else "Gemini'ye bağlanılamadı: ${e.message ?: "internet bağlantını kontrol et"}", e
-                )
-            }
+            val (code, payload) = post(apiKey, body)
             DebugLog.add("Gemini HTTP $code (${System.currentTimeMillis() - started} ms)")
             if (code in 200..299) return JSONObject(payload)
 
-            // Hata gövdesi bazen tek öğeli bir dizi içinde gelir.
-            val message = runCatching {
-                val trimmed = payload.trim()
-                val root = if (trimmed.startsWith("[")) JSONArray(trimmed).getJSONObject(0) else JSONObject(trimmed)
-                root.getJSONObject("error").optString("message")
-            }.getOrNull().orEmpty().ifBlank { payload.take(300) }
+            val message = errorMessage(payload)
             DebugLog.add("Gemini hata: $message")
             // Ücretsiz katmanda dakikalık sınır sık aşılır; bir kez, görünür şekilde bekleyip tekrar denenir.
             if ((code == 429 || code == 503) && attempt < 1 && "per day" !in message.lowercase()) {
@@ -154,7 +136,81 @@ class GeminiBrain(
             .connectTimeout(20, TimeUnit.SECONDS)
             .readTimeout(CALL_TIMEOUT_S, TimeUnit.SECONDS)
             .callTimeout(CALL_TIMEOUT_S, TimeUnit.SECONDS)
+            // Bazı mobil ağlarda HTTP/2 bağlantıları sessizce takılabiliyor; HTTP/1.1 daha öngörülebilir.
+            .protocols(listOf(okhttp3.Protocol.HTTP_1_1))
+            .eventListenerFactory { Timeline() }
             .build()
+
+        /** İsteği gönderir; HTTP kodunu ve gövdeyi döndürür. Bağlantı aşamaları kayda yazılır. */
+        private suspend fun post(apiKey: String, body: String): Pair<Int, String> {
+            val request = Request.Builder()
+                .url(ENDPOINT)
+                .header("x-goog-api-key", apiKey)
+                .post(body.toRequestBody(JSON))
+                .build()
+            val started = System.currentTimeMillis()
+            return try {
+                runInterruptible(Dispatchers.IO) {
+                    http.newCall(request).execute().use { it.code to it.body?.string().orEmpty() }
+                }
+            } catch (e: IOException) {
+                // Kullanıcı işi iptal ettiyse bu bir hata değildir.
+                currentCoroutineContext().ensureActive()
+                DebugLog.add("Gemini bağlantı hatası (${System.currentTimeMillis() - started} ms): $e")
+                throw IllegalStateException(
+                    when (e) {
+                        is java.net.UnknownHostException -> "Google sunucusunun adresi çözülemedi. İnternet bağlantını kontrol et."
+                        is java.io.InterruptedIOException ->
+                            "Gemini ${(System.currentTimeMillis() - started) / 1000} saniyede yanıt vermedi (${e.message ?: "zaman aşımı"})."
+                        else -> "Gemini'ye bağlanılamadı: ${e.message ?: e.javaClass.simpleName}"
+                    }, e
+                )
+            }
+        }
+
+        /** Araçsız, küçük bir istekle anahtarın ve bağlantının çalıştığını sınar. */
+        suspend fun ping(apiKey: String, model: String): String {
+            DebugLog.add("── bağlantı testi  [$model]")
+            val body = JSONObject()
+                .put("model", model)
+                .put("store", false)
+                .put("generation_config", JSONObject().put("thinking_level", "low"))
+                .put("input", JSONArray().put(JSONObject().put("type", "user_input").put("content", "Yalnızca 'hazır' yaz.")))
+                .toString()
+            val started = System.currentTimeMillis()
+            val (code, payload) = post(apiKey, body)
+            val elapsed = System.currentTimeMillis() - started
+            DebugLog.add("test HTTP $code ($elapsed ms): ${payload.replace(Regex("\\s+"), " ").take(400)}")
+            return if (code in 200..299) "Bağlantı çalışıyor ($elapsed ms)." else "Gemini HTTP $code döndürdü: ${errorMessage(payload)}"
+        }
+
+        /** Hata gövdesi bazen tek öğeli bir dizi içinde gelir. */
+        private fun errorMessage(payload: String): String = runCatching {
+            val trimmed = payload.trim()
+            val root = if (trimmed.startsWith("[")) JSONArray(trimmed).getJSONObject(0) else JSONObject(trimmed)
+            root.getJSONObject("error").optString("message")
+        }.getOrNull().orEmpty().ifBlank { payload.take(300) }
+
+        /** DNS, bağlantı, TLS ve yanıt aşamalarının sürelerini kayda yazar. */
+        private class Timeline : okhttp3.EventListener() {
+            private var start = 0L
+            private fun mark(what: String) = DebugLog.add("  ağ +${System.currentTimeMillis() - start} ms: $what")
+            override fun callStart(call: okhttp3.Call) { start = System.currentTimeMillis() }
+            override fun dnsEnd(call: okhttp3.Call, domainName: String, inetAddressList: List<java.net.InetAddress>) =
+                mark("DNS tamam (${inetAddressList.size} adres)")
+            override fun connectStart(call: okhttp3.Call, inetSocketAddress: java.net.InetSocketAddress, proxy: java.net.Proxy) =
+                mark("bağlanıyor ${inetSocketAddress.address?.hostAddress} proxy=${proxy.type()}")
+            override fun connectFailed(
+                call: okhttp3.Call, inetSocketAddress: java.net.InetSocketAddress, proxy: java.net.Proxy,
+                protocol: okhttp3.Protocol?, ioe: IOException,
+            ) = mark("bağlantı başarısız: $ioe")
+            override fun secureConnectEnd(call: okhttp3.Call, handshake: okhttp3.Handshake?) = mark("TLS tamam")
+            override fun requestBodyEnd(call: okhttp3.Call, byteCount: Long) = mark("istek gönderildi ($byteCount bayt)")
+            override fun responseHeadersEnd(call: okhttp3.Call, response: okhttp3.Response) =
+                mark("yanıt başlığı geldi (${response.code})")
+            override fun responseBodyEnd(call: okhttp3.Call, byteCount: Long) = mark("yanıt tamam ($byteCount bayt)")
+            override fun callFailed(call: okhttp3.Call, ioe: IOException) = mark("çağrı başarısız: $ioe")
+        }
 
         private val SYSTEM_PROMPT = PhoneTools.systemPrompt(webSearch = false)
 

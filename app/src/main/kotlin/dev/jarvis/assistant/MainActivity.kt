@@ -10,6 +10,8 @@ import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import dev.jarvis.assistant.databinding.ActivityMainBinding
 
 /** Kurulum ekranı: API anahtarı, izinler, seçenekler ve yazarak komut deneme. */
@@ -17,6 +19,12 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var ui: ActivityMainBinding
     private lateinit var prefs: Prefs
+    private val scope = kotlinx.coroutines.MainScope()
+
+    override fun onDestroy() {
+        scope.cancel()
+        super.onDestroy()
+    }
 
     private val permissions = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -42,6 +50,24 @@ class MainActivity : AppCompatActivity() {
             showProvider()
             Toast.makeText(this, "Kaydedildi", Toast.LENGTH_SHORT).show()
             refresh()
+        }
+        ui.testKey.setOnClickListener {
+            val provider = prefs.provider
+            val key = prefs.apiKey(provider)
+            if (provider != Prefs.GEMINI || key.isBlank()) {
+                Toast.makeText(this, "Önce Gemini anahtarını kaydet", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            ui.status.text = "Bağlantı sınanıyor…"
+            scope.launch {
+                val result = try {
+                    GeminiBrain.ping(key, prefs.model(provider))
+                } catch (e: Exception) {
+                    e.message ?: e.toString()
+                }
+                ui.status.text = result
+                ui.log.text = DebugLog.text()
+            }
         }
         ui.getKey.setOnClickListener {
             val url = if (prefs.provider == Prefs.CLAUDE) "https://console.anthropic.com/settings/keys"
