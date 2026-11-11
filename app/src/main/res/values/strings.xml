@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Jarvis</string>
+    <string name="accessibility_description">Jarvis, sesli komutlarını yerine getirmek için ekrandaki içeriği okur, ekran görüntüsü alır ve senin adına dokunma, yazma, kaydırma işlemleri yapar. Ekran içeriği yalnızca bir komut verdiğinde Claude API\'ye gönderilir.</string>
+</resources>

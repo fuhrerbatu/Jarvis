@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="jarvis_bg">#FF0A1018</color>
+    <color name="jarvis_accent">#FF37D6FF</color>
+    <style name="Theme.Jarvis" parent="Theme.Material3.Dark.NoActionBar">
+        <item name="colorPrimary">@color/jarvis_accent</item>
+        <item name="colorOnPrimary">#FF00222E</item>
+        <item name="android:colorBackground">@color/jarvis_bg</item>
+        <item name="android:windowBackground">@color/jarvis_bg</item>
+        <item name="android:statusBarColor">@color/jarvis_bg</item>
+        <item name="android:navigationBarColor">@color/jarvis_bg</item>
+    </style>
+</resources>
