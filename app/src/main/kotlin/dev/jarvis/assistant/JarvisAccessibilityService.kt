@@ -18,6 +18,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.ByteArrayOutputStream
 import kotlin.math.max
 import kotlin.math.roundToInt
@@ -166,7 +168,7 @@ class JarvisAccessibilityService : AccessibilityService() {
                 result.completeExceptionally(ScreenshotException(errorCode))
             }
         })
-        return result.await()
+        return withTimeout(6000) { result.await() }
     }
 
     // -------------------------------------------------------------- eylemler
@@ -252,7 +254,7 @@ class JarvisAccessibilityService : AccessibilityService() {
                 override fun onCompleted(g: GestureDescription?) { done.complete(true) }
                 override fun onCancelled(g: GestureDescription?) { done.complete(false) }
             }, null)
-            return dispatched && done.await()
+            return dispatched && (withTimeoutOrNull(4000) { done.await() } ?: false)
         } finally {
             withContext(Dispatchers.Main + NonCancellable) { overlay.setTouchPassthrough(false) }
         }

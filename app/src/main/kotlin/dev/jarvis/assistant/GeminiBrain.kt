@@ -31,7 +31,7 @@ class GeminiBrain(
         var steps = 0
         while (true) {
             onStatus(if (steps == 0) "Düşünüyorum…" else "Çalışıyorum…")
-            val response = call(history)
+            val response = call(history, onStatus)
             val modelSteps = response.optJSONArray("steps") ?: JSONArray()
             val calls = mutableListOf<JSONObject>()
             val text = StringBuilder()
@@ -79,12 +79,14 @@ class GeminiBrain(
         }
     }
 
-    private suspend fun call(history: JSONArray): JSONObject {
+    private suspend fun call(history: JSONArray, onStatus: (String) -> Unit): JSONObject {
         val body = JSONObject()
             .put("model", model)
             .put("store", false)
             .put("system_instruction", SYSTEM_PROMPT)
             .put("tools", TOOLS)
+            // Telefon kullanımı kısa adımlardan oluşur; düşük düşünme düzeyi yanıtı belirgin hızlandırır.
+            .put("generation_config", JSONObject().put("thinking_level", "low"))
             .put("input", history)
             .toString()
         var attempt = 0
@@ -94,13 +96,19 @@ class GeminiBrain(
                 .header("x-goog-api-key", apiKey)
                 .post(body.toRequestBody(JSON))
                 .build()
+            val started = System.currentTimeMillis()
             val (code, payload) = try {
                 runInterruptible(Dispatchers.IO) {
                     http.newCall(request).execute().use { it.code to it.body?.string().orEmpty() }
                 }
             } catch (e: IOException) {
-                throw IllegalStateException("İnternet bağlantısı kurulamadı.", e)
+                DebugLog.add("Gemini bağlantı hatası (${System.currentTimeMillis() - started} ms): $e")
+                throw IllegalStateException(
+                    if (e is java.io.InterruptedIOException) "Gemini $CALL_TIMEOUT_S saniye içinde yanıt vermedi. Tekrar dene."
+                    else "Gemini'ye bağlanılamadı: ${e.message ?: "internet bağlantını kontrol et"}", e
+                )
             }
+            DebugLog.add("Gemini HTTP $code (${System.currentTimeMillis() - started} ms)")
             if (code in 200..299) return JSONObject(payload)
 
             // Hata gövdesi bazen tek öğeli bir dizi içinde gelir.
@@ -108,20 +116,24 @@ class GeminiBrain(
                 val trimmed = payload.trim()
                 val root = if (trimmed.startsWith("[")) JSONArray(trimmed).getJSONObject(0) else JSONObject(trimmed)
                 root.getJSONObject("error").optString("message")
-            }.getOrNull().orEmpty()
-            // Ücretsiz katmanda dakikalık sınır sık aşılır; kısa bir bekleyişle kendiliğinden düzelir.
-            if ((code == 429 || code == 503) && attempt < 2 && "per day" !in message.lowercase()) {
+            }.getOrNull().orEmpty().ifBlank { payload.take(300) }
+            DebugLog.add("Gemini hata: $message")
+            // Ücretsiz katmanda dakikalık sınır sık aşılır; bir kez, görünür şekilde bekleyip tekrar denenir.
+            if ((code == 429 || code == 503) && attempt < 1 && "per day" !in message.lowercase()) {
                 attempt++
-                delay(if (code == 429) 20_000L else 4_000L)
+                val wait = if (code == 429) 15 else 4
+                onStatus("Gemini meşgul, $wait sn sonra tekrar deniyorum…")
+                delay(wait * 1000L)
+                onStatus("Düşünüyorum…")
                 continue
             }
             throw IllegalStateException(
                 when (code) {
                     400 -> if ("API key" in message) "Gemini API anahtarı geçersiz. Jarvis uygulamasından kontrol et."
                     else "Gemini isteği reddetti: $message"
-                    401, 403 -> "Gemini API anahtarı geçersiz ya da bu modele erişimi yok."
+                    401, 403 -> "Gemini API anahtarı geçersiz ya da bu modele erişimi yok: $message"
                     404 -> "\"$model\" adında bir Gemini modeli bulunamadı."
-                    429 -> "Gemini'nin ücretsiz kullanım sınırı doldu. Biraz sonra (günlük sınırsa yarın) tekrar dene."
+                    429 -> "Gemini'nin ücretsiz kullanım sınırı doldu. Biraz sonra (günlük sınırsa yarın) tekrar dene.\n\n$message"
                     else -> "Gemini API hatası ($code): $message"
                 }
             )
@@ -135,11 +147,13 @@ class GeminiBrain(
 
     companion object {
         private const val ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/interactions"
+        private const val CALL_TIMEOUT_S = 75L
         private val JSON = "application/json; charset=utf-8".toMediaType()
 
         private val http = OkHttpClient.Builder()
             .connectTimeout(20, TimeUnit.SECONDS)
-            .readTimeout(120, TimeUnit.SECONDS)
+            .readTimeout(CALL_TIMEOUT_S, TimeUnit.SECONDS)
+            .callTimeout(CALL_TIMEOUT_S, TimeUnit.SECONDS)
             .build()
 
         private val SYSTEM_PROMPT = PhoneTools.systemPrompt(webSearch = false)

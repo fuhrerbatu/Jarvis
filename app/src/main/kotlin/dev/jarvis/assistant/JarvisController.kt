@@ -12,6 +12,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.util.Locale
 
@@ -48,7 +49,18 @@ object JarvisController {
         val overlay = service.overlay
         job = scope.launch {
             overlay.hideCard()
-            overlay.showStatus("“$command”")
+            // Durum çubuğunda geçen süre de gösterilir; böylece takılma ile bekleme ayırt edilir.
+            var status = "“$command”"
+            var since = System.currentTimeMillis()
+            fun show() {
+                val seconds = (System.currentTimeMillis() - since) / 1000
+                overlay.showStatus(if (seconds >= 3) "$status  $seconds sn" else status)
+            }
+            show()
+            val ticker = launch {
+                while (true) { delay(1000); show() }
+            }
+            DebugLog.add("── komut: $command  [$provider / ${prefs.model(provider)}]")
             try {
                 val tools = PhoneTools(service)
                 val brain: Brain = if (provider == Prefs.CLAUDE) {
@@ -56,7 +68,13 @@ object JarvisController {
                 } else {
                     GeminiBrain(tools, key, prefs.model(provider))
                 }
-                val answer = brain.run(command) { overlay.showStatus(it) }
+                val answer = brain.run(command) {
+                    status = it
+                    since = System.currentTimeMillis()
+                    show()
+                }
+                ticker.cancel()
+                DebugLog.add("yanıt: $answer")
                 overlay.hideStatus()
                 overlay.showCard(answer)
                 if (answer.length < 140 && "http" !in answer) {
@@ -64,13 +82,17 @@ object JarvisController {
                 }
                 if (prefs.ttsEnabled) speak(app, answer)
             } catch (e: CancellationException) {
+                DebugLog.add("iptal edildi")
                 overlay.hideStatus()
                 throw e
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
+                // Error türleri de (ör. sınıf yükleme hataları) burada yakalanır ki kullanıcı nedenini görsün.
                 Log.e(TAG, "command failed", e)
+                DebugLog.add("HATA: ${Log.getStackTraceString(e).take(500)}")
                 overlay.hideStatus()
                 overlay.showCard("Bir sorun oluştu: ${e.message ?: e.javaClass.simpleName}")
             } finally {
+                ticker.cancel()
                 main.post { VoiceService.instance?.resume() }
             }
         }

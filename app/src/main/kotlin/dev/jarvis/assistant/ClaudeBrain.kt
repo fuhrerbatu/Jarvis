@@ -31,7 +31,11 @@ class ClaudeBrain(
     apiKey: String,
     private val model: String,
 ) : Brain {
-    private val client: AnthropicClient = AnthropicOkHttpClient.builder().apiKey(apiKey).build()
+    private val client: AnthropicClient = AnthropicOkHttpClient.builder()
+        .apiKey(apiKey)
+        .timeout(java.time.Duration.ofSeconds(120))
+        .maxRetries(1)
+        .build()
 
     override suspend fun run(command: String, onStatus: (String) -> Unit): String {
         val messages = mutableListOf(MessageParam.ofUser(tools.firstMessage(command)))
@@ -88,8 +92,11 @@ class ClaudeBrain(
                 }
             }
             .build()
+        val started = System.currentTimeMillis()
         return try {
-            runInterruptible(Dispatchers.IO) { client.messages().create(params) }
+            runInterruptible(Dispatchers.IO) { client.messages().create(params) }.also {
+                DebugLog.add("Claude yanıtı (${System.currentTimeMillis() - started} ms): ${it.stopReason().orElse(null)}")
+            }
         } catch (e: UnauthorizedException) {
             throw IllegalStateException("Claude API anahtarı geçersiz. Jarvis uygulamasından kontrol et.", e)
         } catch (e: PermissionDeniedException) {
@@ -99,7 +106,7 @@ class ClaudeBrain(
         } catch (e: AnthropicServiceException) {
             throw IllegalStateException("Claude API hatası (${e.statusCode()}): ${e.message}", e)
         } catch (e: AnthropicIoException) {
-            throw IllegalStateException("İnternet bağlantısı kurulamadı.", e)
+            throw IllegalStateException("Claude'a bağlanılamadı ya da yanıt zaman aşımına uğradı: ${e.message}", e)
         }
     }
 

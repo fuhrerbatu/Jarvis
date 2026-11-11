@@ -76,6 +76,13 @@ class MainActivity : AppCompatActivity() {
             JarvisAccessibilityService.instance?.overlay?.refreshBubble()
         }
 
+        ui.copyLog.setOnClickListener {
+            val clipboard = getSystemService(android.content.ClipboardManager::class.java)
+            clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Jarvis kaydı", DebugLog.text()))
+            Toast.makeText(this, "Kayıt kopyalandı", Toast.LENGTH_SHORT).show()
+        }
+        ui.refreshLog.setOnClickListener { ui.log.text = DebugLog.text() }
+
         ui.runCommand.setOnClickListener {
             val command = ui.command.text?.toString()?.trim().orEmpty()
             if (command.isNotEmpty()) JarvisController.submit(this, command)
@@ -120,6 +127,7 @@ class MainActivity : AppCompatActivity() {
         } else {
             "Yukarıdaki adımları tamamlayınca Jarvis kullanıma hazır olur."
         }
+        ui.log.text = DebugLog.text()
         startVoiceIfPossible()
     }
 

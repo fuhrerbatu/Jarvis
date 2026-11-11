@@ -72,10 +72,17 @@ class PhoneTools(private val phone: JarvisAccessibilityService) {
     /** Hata fırlatmak yerine modele okunabilir bir hata sonucu döndürür. */
     suspend fun executeSafely(name: String, input: Map<String, Any?>, onStatus: (String) -> Unit): ToolOutput =
         try {
-            execute(name, input, onStatus)
+            DebugLog.add("araç: $name $input")
+            // Hiçbir araç döngüyü sonsuza dek bekletemesin.
+            kotlinx.coroutines.withTimeout(20_000) { execute(name, input, onStatus) }
+                .also { DebugLog.add("  → ${it.text.lineSequence().first()}") }
+        } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
+            DebugLog.add("  → zaman aşımı")
+            ToolOutput("Tool timed out after 20 seconds.", isError = true)
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
+            DebugLog.add("  → hata: $e")
             ToolOutput("Tool failed: ${e.message ?: e.javaClass.simpleName}", isError = true)
         }
 
